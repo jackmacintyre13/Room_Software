@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Room Software</title>
+  <!-- Bootstrap CSS CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./atu-room.css">
+</head>
+<body>
+  <div id="app" class="container"></div>
+  <script>
+  const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTgI1elBu5HC8DXfyFTiY38ObhsAPep7ko3KTBxCG_Qbj6w77AI_9Ad4Lf3Dg60wkNi6u2TEvyeiFm6/pub?output=csv';
+
+  const app    = document.getElementById('app');
+  const footer = document.getElementById('footer');
+
+  // Split on commas not inside brackets
+  function splitSoftware(str) {
+    const result = [];
+    let current = '';
+    let depth = 0;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i];
+      if (ch === '(' || ch === '[' || ch === '{') depth++;
+      if (ch === ')' || ch === ']' || ch === '}') depth = Math.max(0, depth - 1);
+      if (ch === ',' && depth === 0) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    if (current.trim()) result.push(current.trim());
+    return result.filter(Boolean);
+  }
+
+  function parseCSV(text) {
+    const lines = text.trim().split('\n');
+    const data = {};
+    for (let i = 0; i < lines.length; i++) {
+      const cols = [];
+      let cur = '', inQuote = false;
+      for (let c = 0; c < lines[i].length; c++) {
+        const ch = lines[i][c];
+        if (ch === '"') { inQuote = !inQuote; }
+        else if (ch === ',' && !inQuote) { cols.push(cur.trim()); cur = ''; }
+        else { cur += ch; }
+      }
+      cols.push(cur.trim());
+      const room = (cols[0] || '').trim().toLowerCase();
+      const sw   = (cols[2] || '').trim();
+      if (room) data[room] = splitSoftware(sw);
+    }
+    return data;
+  }
+
+  function showLoading() {
+    app.innerHTML = `<div class="state-screen"><div class="spinner"></div><div class="state-sub">Loading room data…</div></div>`;
+  }
+
+  function showError(msg) {
+    app.innerHTML = `<div class=\"state-screen state-center\"><div class=\"state-icon\">⚠️</div><div class=\"state-title\">Something went wrong</div><div class=\"state-sub\">${msg}</div></div>`;
+    footer.style.display = 'none';
+  }
+
+  function showNotFound(room) {
+    app.innerHTML = `<div class=\"state-screen state-center\"><div class=\"state-icon\">🔍</div><div class=\"state-title\">Room not found</div><div class=\"state-sub\">No software list found for room <strong>${room}</strong>. Please check with staff.</div></div>`;
+    footer.style.display = 'none';
+  }
+
+  function showNoRoom() {
+    app.innerHTML = `<div class=\"state-screen state-center\"><div class=\"state-icon\">📍</div><div class=\"state-title\">No room specified</div><div class=\"state-sub\">Scan the NFC tag in a classroom to see available software.</div></div>`;
+    footer.style.display = 'none';
+  }
+
+  function showSoftware(room, items) {
+    const listHTML = items.map((s, i) =>
+      `<div class="col-12 col-sm-6 col-md-4 col-lg-3">
+        <div class="card software-card h-100 shadow-sm">
+          <div class="card-body">
+            <span class="software-badge"></span>
+            <span class="software-title">${s}</span>
+          </div>
+        </div>
+      </div>`
+    ).join('');
+    app.innerHTML = `
+      <div class="row justify-content-center mb-4">
+        <div class="col-auto text-center">
+          <div class="label">Room</div>
+          <div class="room-number">${room.toUpperCase()}</div>
+          <div class="count-label mt-2">${items.length} application${items.length !== 1 ? 's' : ''} available</div>
+        </div>
+      </div>
+      <div class="row g-3">
+        ${listHTML}
+      </div>
+    `;
+  }
+
+  async function init() {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = (params.get('room') || '').trim();
+    if (!roomParam) { showNoRoom(); return; }
+    showLoading();
+    try {
+      const res = await fetch(SHEET_CSV_URL);
+      if (!res.ok) throw new Error();
+      const text = await res.text();
+      const data = parseCSV(text);
+      const key = roomParam.toLowerCase();
+      if (!data[key]) { showNotFound(roomParam); return; }
+      showSoftware(roomParam, data[key]);
+    } catch (e) {
+      showError('Could not load the spreadsheet. Make sure it is published publicly as CSV via File → Share → Publish to web.');
+      console.error(e);
+    }
+  }
+
+  init();
+  </script>
+</body>
+</html>
